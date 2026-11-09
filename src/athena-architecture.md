@@ -6,6 +6,8 @@
 
 在设计上 Phi Athena 的 AI 服务 Phi Nikai，并不是一套从零开始的新系统，而是 Phi Agent 的自然延伸：同一个服务、同一套 DeepSeek Harness 内核、同一批插件，只是在发行清单里多打开了一组本地与连接能力。
 
+在 Athena 的 Chat 中，消息仍然走现有的 Chat Pipeline：先取这一轮需要的上下文，召回记忆，再由 Task router 判断是直接回答，还是委派给 worker；最终的回复始终由聊天模型写出。记忆沿用现有的 Memory 架构，Athena 和 Phi Browser 读写的是同一份用户记忆。因此用户升级到 Athena 之后，对话方式、回复口吻，以及 Agent 对用户的了解，都和在 Phi Browser 里保持一致，既不用重新适应，也不用重新积累。
+
 Phi Agent 早已迁移到 DeepSeek Harness，能力完全按插件组装。Phi Nikai 所需要的本地操作、外部连接、子 Agent、定时与审批等能力，上游已经提供了成熟且经过验证的插件。因此，Phi Athena 真正需要投入的工作，集中在产品层——Task、审批、连接、Folio 与主动触发。Agent 运行时本身不需要重新实现。
 
 ## Phi Agent 和 Phi Nikai 的关系
