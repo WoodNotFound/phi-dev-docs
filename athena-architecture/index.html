@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Phi Athena Agent 能力架构概要设计</title>
+<style>
+:root { color-scheme: light; --ink: #1f1f1d; --quiet: #6b6a65; --line: #e2e0d9; --tint: #f6f5f1; --link: #1f6fd1; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--ink); font: 16px/1.75 -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
+main { max-width: 800px; margin: 0 auto; padding: 48px 24px 96px; }
+h1 { font-size: 32px; line-height: 1.3; margin: 0 0 12px; }
+h1 + p { color: var(--quiet); font-size: 14px; margin: 0 0 32px; }
+h2 { font-size: 23px; line-height: 1.4; margin: 56px 0 16px; padding-top: 24px; border-top: 1px solid var(--line); }
+h3 { font-size: 18px; margin: 32px 0 12px; }
+p, ul, ol { margin: 0 0 16px; }
+li { margin: 4px 0; }
+a { color: var(--link); }
+img { display: block; width: 100%; height: auto; margin: 24px 0; }
+code { font: 0.875em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--tint); border-radius: 4px; padding: 2px 5px; }
+pre { background: var(--tint); border: 1px solid var(--line); border-radius: 8px; padding: 16px; overflow-x: auto; line-height: 1.55; margin: 0 0 24px; }
+pre code { background: none; padding: 0; }
+.table { overflow-x: auto; margin: 0 0 24px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.6; }
+th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--tint); font-weight: 600; white-space: nowrap; }
+@media (max-width: 600px) { main { padding: 32px 16px 64px; } h1 { font-size: 26px; } th, td { min-width: 96px; } }
+</style>
+</head>
+<body><main>
+<h1>Phi Athena Agent 能力架构概要设计</h1>
+<p>更新于 2026-11-09</p>
+<h2>摘要</h2>
+<p>在设计上 Phi Athena 的 AI 服务 Phi Nikai，并不是一套从零开始的新系统，而是 Phi Agent 的自然延伸：同一个服务、同一套 DeepSeek Harness 内核、同一批插件，只是在发行清单里多打开了一组本地与连接能力。</p>
+<p>Phi Agent 早已迁移到 DeepSeek Harness，能力完全按插件组装。Phi Nikai 所需要的本地操作、外部连接、子 Agent、定时与审批等能力，上游已经提供了成熟且经过验证的插件。因此，Phi Athena 真正需要投入的工作，集中在产品层——Task、审批、连接、Folio 与主动触发。Agent 运行时本身不需要重新实现。</p>
+<h2>Phi Agent 和 Phi Nikai 的关系</h2>
+<p>Phi Nikai 是 Phi Athena 的 AI 服务，也是 Phi Agent 的超集。两者来自同一份代码，鉴权和调用方式相同。</p>
+<p>产品规划上，现有的 Phi Browser + Phi Agent 会继续保留。升级到 Athena 之后，Phi Browser 与 Athena 应用都连接到同一个 Phi Nikai。由于 Phi Nikai 完整包含 Phi Agent 的全部能力，两者本质上是一脉相承的演进关系，而非替代关系。</p>
+<p>当初把 Phi Agent 迁到 DeepSeek Harness，正是为了让后续能力能以插件方式灵活拼装与升级。Phi Agent 上新增的任何能力，Phi Nikai 都会自动继承。</p>
+<p><img src="img/relationship.png" alt="Phi Agent 和 Phi Nikai 的关系"></p>
+<div class="table"><table>
+<thead>
+<tr>
+<th></th>
+<th>Phi Agent</th>
+<th>Phi Nikai</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>谁在用</td>
+<td>未升级的 Phi Browser</td>
+<td>升级后的 Phi Browser 和 Athena 应用</td>
+</tr>
+<tr>
+<td>能力</td>
+<td>现有全部能力</td>
+<td>Phi Agent 全部能力、通用 Agent 插件，以后再加 Athena 特有能力</td>
+</tr>
+<tr>
+<td>鉴权和调用</td>
+<td>Auth0 token + WebSocket</td>
+<td>相同</td>
+</tr>
+<tr>
+<td>现状</td>
+<td>已发布</td>
+<td>代码在 <code>feature/phi-nikai</code> 分支，还没合入 staging，CI 也还没打包</td>
+</tr>
+</tbody></table></div>
+<p>Athena 应用可以先连 Phi Agent 开发。以后换成 Phi Nikai，聊天这部分不用改代码。</p>
+<h2>DeepSeek Harness 已经提供的能力</h2>
+<p>Phi Nikai 需要的运行时能力，在上游 <a href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a> 里都有对应的插件。我们只需要在发行清单中打开它们，并在 Phi 的插件层补充少量产品规则即可。</p>
+<div class="table"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>上游插件</th>
+<th>Phi Nikai</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>本地操作：shell、文件读写与搜索、后台任务</td>
+<td><code>dsh-tool-bash</code>、<code>dsh-tool-fs</code>、<code>dsh-tool-fs-search</code>、<code>dsh-tool-jobs</code></td>
+<td>已接入</td>
+</tr>
+<tr>
+<td>沙箱与沙箱策略</td>
+<td><code>dsh-sandbox-local</code>、<code>dsh-bash-sandbox</code></td>
+<td>已接入</td>
+</tr>
+<tr>
+<td>工具调用前征得用户同意</td>
+<td><code>dsh-user-approval</code></td>
+<td>已接入</td>
+</tr>
+<tr>
+<td>同进程子 Agent</td>
+<td><code>dsh-tool-subagent</code></td>
+<td>已接入</td>
+</tr>
+<tr>
+<td>第三方 harness 作为子 Agent：Claude Code、Codex、任何 ACP Agent</td>
+<td><code>dsh-subagent-claude-code</code>、<code>dsh-subagent-codex</code>、<code>dsh-subagent-acp</code></td>
+<td>可直接接入</td>
+</tr>
+<tr>
+<td>连接外部服务（MCP）</td>
+<td><code>dsh-mcp-client</code>、<code>dsh-mcp-manager</code></td>
+<td>可直接接入</td>
+</tr>
+<tr>
+<td>Skill：本地 Skill、Office 文档</td>
+<td><code>dsh-skill-filesystem</code>、<code>dsh-skill-office</code></td>
+<td>可直接接入</td>
+</tr>
+<tr>
+<td>定时与提醒</td>
+<td><code>dsh-schedule</code></td>
+<td>可直接接入</td>
+</tr>
+<tr>
+<td>声明交付的成果文件</td>
+<td><code>dsh-tool-present</code></td>
+<td>可直接接入</td>
+</tr>
+<tr>
+<td>在另一台机器上执行（SSH）</td>
+<td><code>dsh-ssh</code>、<code>dsh-fs-ssh</code>、<code>dsh-sandbox-ssh</code></td>
+<td>可直接接入</td>
+</tr>
+</tbody></table></div>
+<h2>分层架构</h2>
+<p>Phi Nikai 与 Phi Agent 共用同一套插件与内核，差别仅体现在发行清单上。</p>
+<p><img src="img/layers.png" alt="分层架构 · 4 层"></p>
+<p>上层只依赖下层。Phi Agent 与 Phi Nikai 的差异被严格限制在发行清单层面：同一批插件、同一个内核。Phi Nikai 只是额外打开了本地能力，以及 MCP、第三方子 Agent、定时等上游已有插件。</p>
+<p>这种设计保证了：任何对内核或通用插件的改进，两边都能同时受益，而无需维护两套并行实现。</p>
+<h2>一条消息的执行流程</h2>
+<p>消息先进入聊天层，只有真正需要动手时才委派给 worker，最终由聊天模型写出回复。Phi Nikai 的聊天流程与 Phi Agent 完全一致，唯一差别是 worker 侧多了本地工具。</p>
+<p>worker 本身是异步的。聊天这一轮不会等待它结束。前端只需维护一条 WebSocket，即可实时看到状态、进度、确认卡片与最终消息。</p>
+<p><img src="img/message-flow.png" alt="一条消息从进入到返回的流程"></p>
+<div class="table"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>做什么</th>
+<th>代码位置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Chat pipeline</td>
+<td>找到对话的 <code>ChatAssistant</code>，同时取上下文并跑 task router</td>
+<td><code>plugins/chat/src/lib/sidecar-chat.ts</code>、<code>chat/src/engine/assistant.ts</code></td>
+</tr>
+<tr>
+<td>Task router</td>
+<td>决策模型回答封闭问题，代码按阈值得出结论。失败时不猜结果，由聊天模型自己判断</td>
+<td><code>chat/src/execution/task-router.ts</code></td>
+</tr>
+<tr>
+<td>到 worker</td>
+<td>聊天模型调用 <code>control_delegate_task</code> 并写出 objective，用户先看到一句占位状态。任务默认限时 5 分钟</td>
+<td><code>plugins/chat/src/lib/worker-task-executor.ts</code>、<code>delegated-worker.ts</code></td>
+</tr>
+<tr>
+<td>Worker</td>
+<td>DeepSeek Harness 的 Agent 循环调用模型和工具，每步最多一个工具。进度按 <code>worker_progress</code>、<code>reasoning_summary_*</code> 推给前端</td>
+<td><code>plugins/worker/src/agent-tools.ts</code>、<code>plugins/guard/src</code></td>
+</tr>
+<tr>
+<td>返回用户</td>
+<td>先推 worker 生成的文件，再由聊天模型根据结果写回复。Hub 保存消息，推送 feed 和 <code>RUN_FINISHED</code></td>
+<td><code>chat/src/engine/assistant.ts</code>、<code>prompts/turn-notes.ts</code></td>
+</tr>
+</tbody></table></div>
+<h2>Phi Nikai 在 Phi Agent 之上新增什么</h2>
+<p>下表六项里，Folio 是新接入的能力；其余都是把上游插件接入清单，再在 Phi 插件里加产品规则。</p>
+<div class="table"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>用户看到的</th>
+<th>落在哪里</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>后台执行</td>
+<td>Task 在后台跑，关掉窗口、服务重启都不丢</td>
+<td>Phi 的 Task 插件 + DeepSeek Harness 会话恢复</td>
+</tr>
+<tr>
+<td>权限与审批</td>
+<td>风险操作先问，常用操作可以设为自动</td>
+<td><code>dsh-user-approval</code> + Phi 的审批记录；重启后的答复只授权一次，按工具名和参数匹配</td>
+</tr>
+<tr>
+<td>外部连接与 Skill</td>
+<td>用户说要装什么，Agent 装好并配置；可用内置 Skill，也可自己写</td>
+<td>MCP 与 Skill 插件；现有的浏览器 Skill 扩展为完整 Skill</td>
+</tr>
+<tr>
+<td>成果交付</td>
+<td>成果集中在 Folio</td>
+<td><code>dsh-tool-present</code> + Folio</td>
+</tr>
+<tr>
+<td>主动触发</td>
+<td>到点或条件满足时 Agent 自己开始</td>
+<td><code>dsh-schedule</code> + Phi 的触发规则</td>
+</tr>
+<tr>
+<td>远程执行</td>
+<td>Task 在别的机器上继续</td>
+<td>上游 SSH 系列是现成的一条路，方案待定</td>
+</tr>
+</tbody></table></div>
+<p>浏览器能力、记忆、邮件防护、Chat 这些 Phi Agent 已有的插件原样保留，Phi Nikai 直接继承。</p>
+<h2>异步 worker</h2>
+<p>委派给 worker 的任务在后台运行，主对话不会被占住。用户可以一边等待任务，一边继续聊天，体验与 Claude Code 的 Task 类似。</p>
+<p>异步 Task 没有另起一套机制，而是直接复用现有的 Task 基础设施。定时 Task 配合 schedule 到点执行，异步 Task 则在创建后立即执行。两者共享同一套运行环境、进度查看方式与结果回写路径。</p>
+<p><img src="img/async-worker.png" alt="异步 worker 的流程"></p>
+<ol>
+<li><strong>判断：</strong> 用户的消息经过 chat pipeline 和 task router，判断需要变成 Task 委派给 worker。这一步和现在一样。</li>
+<li><strong>立即启动：</strong> chat pipeline 创建 Task 并立即启动，不等它结束。</li>
+<li><strong>立刻回复：</strong> 同时告诉用户任务正在跑，跑完会告知结果。这一轮到此结束，用户可以继续在主对话里聊天。</li>
+<li><strong>后台执行：</strong> worker 在 Task run 里完成任务。用户想看进度，可以去 Task 页面。</li>
+<li><strong>告知结果：</strong> Task 跑完后，聊天模型把结果写回主对话。</li>
+</ol>
+<h3>复用现有的 Task</h3>
+<div class="table"><table>
+<thead>
+<tr>
+<th></th>
+<th>定时 Task</th>
+<th>异步 Task</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>谁创建</td>
+<td>用户在 Task 页面创建，或 worker 调用 <code>schedule.create</code></td>
+<td>chat pipeline 委派时创建</td>
+</tr>
+<tr>
+<td>何时执行</td>
+<td>schedule 到点</td>
+<td>创建后立即执行</td>
+</tr>
+<tr>
+<td>怎么执行</td>
+<td>Task 的 worker 运行环境</td>
+<td>相同</td>
+</tr>
+<tr>
+<td>怎么看进度</td>
+<td>Task 页面</td>
+<td>相同</td>
+</tr>
+<tr>
+<td>结果去哪</td>
+<td>报告写回来源对话</td>
+<td>相同</td>
+</tr>
+</tbody></table></div>
+<p>现有 Task 已经有这些接口：<code>/api/tasks</code> 管理任务和运行记录；报告以 <code>task_report</code> 事件推送，并保存在消息的 <code>metadata.taskReport</code> 里。Phi Chat 里的 Tasks 页面就是基于它们做的。</p>
+<h3>主对话的权限</h3>
+<ul>
+<li><strong>默认 Auto：</strong> 所有用户都用 Auto，界面上没有开关。Auto 审查每个操作，需要时用通俗的话说明这个操作会做什么，再请用户确认。详细规则和网络策略后续再定。</li>
+<li><strong>Bypass：</strong> 只能在开发者模式里打开，打开后才会出现 Auto 和 Bypass 的选择。</li>
+<li><strong>确认卡片：</strong> 出现在主对话里，标明来自哪个 Task。只有用户的操作能批准，卡片不设超时，刷新和重启后仍在。重启后的答复只授权一次，按工具名和完全相同的参数匹配。</li>
+<li><strong>异步 Task：</strong> 启动时带上用户的权限选择。</li>
+<li><strong>定时 Task：</strong> 创建时定好权限，并确认已知的额外权限；运行时不再询问。碰到边界时该操作失败，报告里提供「以后都允许」。</li>
+</ul>
+<h2>发行与项目结构</h2>
+<p>Phi Agent 和 Phi Nikai 是同一个项目按两份清单构建的两个产物。Phi Nikai 的清单包含 Phi Agent 的全部能力。</p>
+<ul>
+<li><strong>Canary：</strong> Phi Agent 直接升级为 Phi Nikai，方便 Athena 开发。</li>
+<li><strong>Stable：</strong> 继续发布 Phi Agent，只做维护。它的发布清单固定，需要新插件时手动加进清单。</li>
+<li><strong>Athena 正式版：</strong> 开始发布时，再决定两者如何共存和测试。</li>
+</ul>
+<pre><code>phi-agent-dsh/
+  bundle/             Phi Nikai 的完整清单
+  plugins/            全部插件，包括本地能力 local/
+  lib/                共用库
+  phi-agent/bundle/   Phi Agent 的固定发布清单
+  scripts/  env/      构建、打包与环境配置
+</code></pre>
+<p><code>phi-agent-dsh</code> 是 Phi Nikai 的主项目，Phi Agent 占一个子目录。两个产物共用同一个 DeepSeek Harness 版本；服务名和通信路径仍叫 phi-agent，客户端不用改。</p>
+<h2>演进原则</h2>
+<ol>
+<li><strong>能力加在插件层。</strong> 新需求先看上游有没有现成插件，有就接入清单；没有再在插件层自己写，不改内核。</li>
+<li><strong>跟着上游走，不分叉。</strong> 不给上游依赖打补丁，上游升级直接吸收。升级到 DeepSeek Harness 0.2 时，前后 A/B 对比没有回归。</li>
+<li><strong>一个服务，一套内核。</strong> Phi Agent 与 Phi Nikai 只在清单上不同。共用代码不按产物分支；要不同的行为，按使用入口（Athena 还是 Sidecar）或扩展点来分。</li>
+<li><strong>职责清晰划分。</strong> Agent 循环、会话、工具执行、子 Agent 交给 DeepSeek Harness，Phi 自己写浏览器、记忆、Task、审批规则这些只有 Phi 才有的东西。</li>
+</ol>
+
+</main></body>
+</html>

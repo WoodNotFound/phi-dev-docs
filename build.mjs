@@ -1,24 +1,40 @@
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { marked } from "marked";
 
-const NAME = "athena-chat";
-const TITLE = "Athena Chat 开发测试说明";
-const IMAGES = {
-  "Phi Agent 和 Phi Nikai 的关系": "relationship.png",
-  "一条消息从进入到返回的流程": "message-flow.png",
-  "异步 worker 的流程（规划中）": "async-worker.png",
+// Each page: src/<name>.md, its diagrams in src/img/<name>/, keyed by the caption the doc export leaves behind.
+const PAGES = [
+  {
+    name: "athena-architecture",
+    title: "Phi Athena Agent 能力架构概要设计",
+    images: {
+      "Phi Agent 和 Phi Nikai 的关系": "relationship.png",
+      "分层架构 · 4 层": "layers.png",
+      "一条消息从进入到返回的流程": "message-flow.png",
+      "异步 worker 的流程": "async-worker.png",
+    },
+  },
+  {
+    name: "athena-chat",
+    title: "Athena Chat 开发测试说明",
+    images: {
+      "Phi Agent 和 Phi Nikai 的关系": "relationship.png",
+      "一条消息从进入到返回的流程": "message-flow.png",
+      "异步 worker 的流程（规划中）": "async-worker.png",
+    },
+  },
+];
+
+const render = ({ name, images }) => {
+  let source = readFileSync(`src/${name}.md`, "utf8");
+  for (const [alt, file] of Object.entries(images)) {
+    source = source.replace(`&#91;embedded content: ${alt}\\]`, `![${alt}](img/${file})`);
+  }
+  if (source.includes("embedded content")) throw new Error(`${name}: a diagram has no image`);
+  return marked
+    .parse(source)
+    .replace(/<table>/g, '<div class="table"><table>')
+    .replace(/<\/table>/g, "</table></div>");
 };
-
-let source = readFileSync(`src/${NAME}.md`, "utf8");
-for (const [alt, file] of Object.entries(IMAGES)) {
-  source = source.replace(`&#91;embedded content: ${alt}\\]`, `![${alt}](img/${file})`);
-}
-if (source.includes("embedded content")) throw new Error("a diagram has no image");
-
-const body = marked
-  .parse(source)
-  .replace(/<table>/g, '<div class="table"><table>')
-  .replace(/<\/table>/g, "</table></div>");
 
 const page = (title, content) => `<!doctype html>
 <html lang="zh-CN">
@@ -56,10 +72,15 @@ ${content}
 </html>
 `;
 
-mkdirSync(NAME, { recursive: true });
-cpSync("src/img", `${NAME}/img`, { recursive: true });
-writeFileSync(`${NAME}/index.html`, page(TITLE, body));
+for (const p of PAGES) {
+  mkdirSync(p.name, { recursive: true });
+  cpSync(`src/img/${p.name}`, `${p.name}/img`, { recursive: true });
+  writeFileSync(`${p.name}/index.html`, page(p.title, render(p)));
+}
 writeFileSync(
   "index.html",
-  page("Phi 开发文档", `<h1>Phi 开发文档</h1>\n<ul><li><a href="${NAME}/">${TITLE}</a></li></ul>`),
+  page(
+    "Phi 开发文档",
+    `<h1>Phi 开发文档</h1>\n<ul>${PAGES.map((p) => `<li><a href="${p.name}/">${p.title}</a></li>`).join("")}</ul>`,
+  ),
 );
